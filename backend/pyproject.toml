@@ -15,6 +15,10 @@ dependencies = [
     "pydantic-settings>=2.3",
     "pyjwt>=2.8",
     "passlib[bcrypt]>=1.7",
+    # passlib 1.7.4's bcrypt backend probes `bcrypt.__about__.__version__`, which
+    # was removed in bcrypt 4.1 — pin below that until passlib releases a fix.
+    "bcrypt>=4.0.1,<4.1",
+    "email-validator>=2.0",
     "gitpython>=3.1",
     "docker>=7.1",
     "celery>=5.4",
