@@ -1,10 +1,9 @@
 """Alembic migration environment.
 
 Async-capable env.py wired to app.core.config.settings for DATABASE_URL and to
-app.models.Base.metadata for autogenerate. Phase 1 will populate app/models/
-with real ORM classes; until then this runs with an empty metadata (no-op
-autogenerate).
+app.models.Base.metadata for autogenerate.
 """
+
 import asyncio
 from logging.config import fileConfig
 
@@ -13,13 +12,20 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
 
 from app.core.config import settings
-from app.models.base import Base
+
+# Import the package (not just app.models.base) so every model module runs
+# and registers its table against Base.metadata before autogenerate reads it.
+from app.models import Base
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Only fall back to settings.DATABASE_URL if the caller hasn't already set a
+# URL (tests set one programmatically, via Config.set_main_option, to point
+# migrations at an isolated test database).
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 target_metadata = Base.metadata
 

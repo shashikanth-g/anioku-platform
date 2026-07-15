@@ -148,6 +148,56 @@ left, and anything the next session needs to know that isn't obvious from the
 code itself.
 -->
 
+### Session 2 — 2026-07-15 — Phase 1: Backend core (IN PROGRESS)
+
+**Environment change:** Docker Desktop + WSL2/Ubuntu 24.04 is now set up on the
+dev machine; `docker compose up -d` boots all 4 services for real (previously
+only verified on paper — see Session 1's caveat, now resolved).
+
+**Checkpoint — models + migration (done):**
+- Fixed two dependency bugs found while verifying the environment, before
+  writing any Phase 1 code (see `backend/pyproject.toml`):
+  - passlib 1.7.4's bcrypt backend probes `bcrypt.__about__.__version__`,
+    removed in bcrypt>=4.1 — every hash/verify call raised `ValueError`. Pinned
+    `bcrypt>=4.0.1,<4.1`.
+  - Added `email-validator` (required by Pydantic's `EmailStr`, used in the new
+    auth/workspace schemas).
+  - Rebuilt the backend image (`docker compose build backend`) after the
+    pyproject.toml change — dependency changes need a rebuild; plain `.py`
+    edits hot-reload via the bind mount + `--reload`.
+- Implemented all 10 models from `app/models/enums.py` (7 shared Python enums)
+  and `app/models/{user,workspace,workspace_member,project,project_file,
+  conversation,message,agent_run,deployment,memory}.py`: `User`, `Workspace`,
+  `WorkspaceMember` (composite PK), `Project`, `ProjectFile` (unique on
+  `(project_id, path)`), `Conversation`, `Message` (column named `metadata` in
+  Postgres, Python attribute `metadata_` since `metadata` is reserved on
+  `DeclarativeBase`), `AgentRun`, `Deployment`, `MemoryEntry` (pgvector
+  `Vector(1536)`). `UUIDPKMixin`/`CreatedAtMixin` in `app/models/base.py` share
+  the id/created_at boilerplate. Every model uses `TYPE_CHECKING` imports for
+  its cross-model `relationship()` string refs (ruff F821-clean, and real type
+  checkers/IDEs can resolve them too).
+- Fixed `alembic/env.py`: it was importing `app.models.base` directly (only
+  the empty `Base` class, never triggering the model modules to register their
+  tables) — changed to `from app.models import Base` so the package `__init__`
+  runs first. Also made the `sqlalchemy.url` override conditional
+  (`if not config.get_main_option(...)`) so tests can point migrations at an
+  isolated database programmatically without env.py clobbering it back to the
+  dev DB.
+- Generated the migration via `alembic revision --autogenerate`, then hand-edited it:
+  added `CREATE EXTENSION IF NOT EXISTS vector` (upgrade) / `DROP EXTENSION IF
+  EXISTS vector` (downgrade), and the missing `import pgvector.sqlalchemy` the
+  autogenerate output needed but didn't add itself.
+- Applied to the live dev Postgres (`docker compose exec backend alembic
+  upgrade head`) and verified via `psql`: all 10 tables + `alembic_version`,
+  the `vector` extension (0.8.5), and all 7 Postgres enum types with correct
+  values.
+- `ruff format` + `ruff check` clean on `app/models/` and `alembic/`.
+
+**Next in this session:** auth (JWT cookies + bcrypt), then workspace/project/file
+services + routers + tests, all against the live Postgres — see the roadmap
+checklist the task was given. Will checkpoint again after auth, then once more
+at the end with the full test suite green.
+
 ### Session 1 — 2026-07-15 — Foundation (pre-Phase 1)
 
 **Completed:**
