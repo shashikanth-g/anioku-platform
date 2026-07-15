@@ -1,4 +1,5 @@
 """Smoke test for the health endpoint — should stay green through every phase."""
+
 from fastapi.testclient import TestClient
 
 from app.main import fastapi_app

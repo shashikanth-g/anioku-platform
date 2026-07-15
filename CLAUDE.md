@@ -148,7 +148,7 @@ left, and anything the next session needs to know that isn't obvious from the
 code itself.
 -->
 
-### Session 2 — 2026-07-15 — Phase 1: Backend core (IN PROGRESS)
+### Session 2 — 2026-07-15 — Phase 1: Backend core (COMPLETE)
 
 **Environment change:** Docker Desktop + WSL2/Ubuntu 24.04 is now set up on the
 dev machine; `docker compose up -d` boots all 4 services for real (previously
@@ -217,10 +217,72 @@ only verified on paper — see Session 1's caveat, now resolved).
   infrastructure for every Phase 1 test file.
 - `ruff format` + `ruff check` clean on everything touched so far.
 
-**Next in this session:** workspace/project/file services + routers, template
-skeletons, `conftest.py` (live Postgres test DB via Alembic, transactional
-per-test sessions, isolated `PROJECTS_ROOT`), and the full Phase 1 test suite.
-Final checkpoint once everything is green.
+**Checkpoint — workspaces/projects/files + full test suite (done, Phase 1 complete):**
+- `app/services/workspace_service.py` + `app/api/workspaces.py`: workspace
+  CRUD, member invite-by-email (looks up an existing user; 404s if none
+  matches — there's no pending-invite/email-send flow yet, that's a later
+  phase if ever needed), role updates, member removal. The workspace creator
+  is auto-added as an `admin` member; `OwnerRoleChangeError` blocks demoting
+  or removing the owner.
+- `app/services/project_service.py` + `app/api/projects.py`: project create
+  (nested under `/workspaces/{id}/projects`, admin/editor only) copies a
+  template skeleton via `file_service.instantiate_template`; project
+  read/update/delete live at `/projects/{id}`. Five templates in
+  `app/templates/`: `blank` (README), `node`, `next` (minimal App Router
+  skeleton, not a full `create-next-app` output), `python`, `fastapi` — real
+  minimal skeletons, not placeholders.
+- `app/services/file_service.py` (`/projects/{id}/files...` routes in
+  `app/api/files.py`): the single authority for disk I/O, keeping
+  `ProjectFile` rows in lockstep with `PROJECTS_ROOT/<project_id>/`.
+  `resolve_path()` is the path-traversal guard — rejects absolute paths
+  up front (pathlib's `root / "/etc/passwd"` silently discards `root` and
+  returns `/etc/passwd`, so this has to be checked explicitly, not just
+  relied on `.resolve()` + containment) and then confirms the resolved path
+  is inside the project root via `relative_to()`, catching `../../etc/passwd`
+  style escapes → mapped to 400 in the router. Rename/delete use a
+  properly-escaped `LIKE` prefix match (`_like_prefix`) to move/remove a
+  directory's descendants, since raw `%`/`_` in a real filename would
+  otherwise be misinterpreted as SQL wildcards.
+- Read routes (`require_project_role()`/`require_workspace_role()` called
+  with no roles) allow any member incl. viewers; write routes require
+  `ADMIN`/`EDITOR` — this is what `test_workspace_permissions.py` exercises.
+- `tests/conftest.py`: creates `anku_test` (via a raw asyncpg connection to
+  the `postgres` maintenance db, `CREATE DATABASE` can't run inside a
+  transaction) and runs the real Alembic migration against it
+  (`command.upgrade`, off the main thread via `asyncio.to_thread` since
+  `env.py`'s `asyncio.run()` can't nest inside pytest-asyncio's already-running
+  loop) — so Phase 1 tests prove the migration works, not just the models.
+  Each test gets an `AsyncSession` bound to a connection with
+  `join_transaction_mode="create_savepoint"`, rolled back at teardown, so
+  `db.commit()` calls in service code only release a savepoint. **Important
+  gotcha hit here:** the test engine must use `poolclass=NullPool` — pytest-
+  asyncio gives every test function its own event loop, and a pooled asyncpg
+  connection checked out in a different loop than the one that created it
+  raises `RuntimeError: Task got Future attached to a different loop`.
+  `PROJECTS_ROOT` is monkeypatched to a fresh `tmp_path` per test (autouse),
+  so file tests never touch the real dev `projects_root/`.
+- Found and fixed a real bug via the refresh-token test: JWTs had no `jti`,
+  so two tokens minted for the same user within the same wall-clock second
+  (e.g. signup immediately followed by refresh) were byte-identical — added
+  a `jti` (uuid4) claim to every issued token in `core/security.py`.
+- `tests/test_auth.py`, `test_workspace_permissions.py`, `test_files.py` (plus
+  the existing `test_health.py`): **10/10 passing**, run 3x in a row with no
+  flakiness. Covers: full auth flow incl. duplicate-email 409 and wrong-password
+  401; viewer-cannot-write / editor-can, and owner-cannot-be-demoted-or-removed;
+  file CRUD round-trip (create → write → read → rename → delete → 404),
+  path-traversal → 400, and project creation from all 5 templates.
+- Fixed an Alembic deprecation warning (`path_separator = os` in
+  `alembic.ini`) surfaced while running the suite.
+- Final state: `ruff format --check` and `ruff check` clean across all of
+  `app/` and `tests/`; `docker compose` stack healthy; `GET /api/v1/health`
+  live.
+
+**Everything from the Phase 1 task list is done.** Not yet built (intentionally
+out of scope until their phase): terminal/git/ai/agents/deploy/search routers
+are still stubs (Phase 3/4/5/7/8/10 respectively); no frontend work (Phase 2).
+
+**Next session (Phase 2):** frontend IDE shell — Monaco, file tree, tabs,
+layout — wired against the now-real `/api/v1` backend.
 
 ### Session 1 — 2026-07-15 — Foundation (pre-Phase 1)
 

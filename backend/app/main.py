@@ -13,7 +13,7 @@ import socketio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth
+from app.api import auth, files, projects, workspaces
 from app.core.config import settings
 from app.realtime.server import sio
 
@@ -28,6 +28,9 @@ fastapi_app.add_middleware(
 )
 
 fastapi_app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+fastapi_app.include_router(workspaces.router, prefix=settings.API_V1_PREFIX)
+fastapi_app.include_router(projects.router, prefix=settings.API_V1_PREFIX)
+fastapi_app.include_router(files.router, prefix=settings.API_V1_PREFIX)
 
 
 @fastapi_app.get(f"{settings.API_V1_PREFIX}/health")

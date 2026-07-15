@@ -2,6 +2,7 @@
 
 Task modules register against this instance; see tasks.py.
 """
+
 from celery import Celery
 
 from app.core.config import settings

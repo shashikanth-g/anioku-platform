@@ -34,6 +34,11 @@ def _create_token(subject: uuid.UUID | str, token_type: TokenType, expires_delta
     payload = {
         "sub": str(subject),
         "type": token_type.value,
+        # A unique id per issuance — without it, two tokens minted within the
+        # same second (e.g. signup immediately followed by refresh) would be
+        # byte-for-byte identical, which also makes future revocation-by-jti
+        # impossible.
+        "jti": str(uuid.uuid4()),
         "iat": now,
         "exp": now + expires_delta,
     }

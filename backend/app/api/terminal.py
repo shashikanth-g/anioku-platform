@@ -2,6 +2,7 @@
 
 TODO(Phase 3): implement using app.runtime.terminal + app.runtime.docker_manager.
 """
+
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/terminal", tags=["terminal"])

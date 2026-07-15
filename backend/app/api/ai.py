@@ -2,6 +2,7 @@
 
 TODO(Phase 4): implement using app.ai.gateway.
 """
+
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/ai", tags=["ai"])

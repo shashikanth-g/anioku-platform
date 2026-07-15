@@ -7,6 +7,7 @@ single stable import.
 Event naming convention: "domain:action", e.g. "file:update", "terminal:output",
 "presence:join", "chat:stream".
 """
+
 import socketio
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
