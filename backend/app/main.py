@@ -8,10 +8,12 @@ settings.API_V1_PREFIX. See app/api/*.py.
 `uvicorn app.main:app`) is the combined ASGI app: socket.io handles requests
 under /socket.io, everything else falls through to the FastAPI app.
 """
+
 import socketio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import auth
 from app.core.config import settings
 from app.realtime.server import sio
 
@@ -24,6 +26,8 @@ fastapi_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+fastapi_app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 
 
 @fastapi_app.get(f"{settings.API_V1_PREFIX}/health")

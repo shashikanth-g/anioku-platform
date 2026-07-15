@@ -193,10 +193,34 @@ only verified on paper — see Session 1's caveat, now resolved).
   values.
 - `ruff format` + `ruff check` clean on `app/models/` and `alembic/`.
 
-**Next in this session:** auth (JWT cookies + bcrypt), then workspace/project/file
-services + routers + tests, all against the live Postgres — see the roadmap
-checklist the task was given. Will checkpoint again after auth, then once more
-at the end with the full test suite green.
+**Checkpoint — auth (done):**
+- `app/core/security.py`: bcrypt hashing via passlib, JWT access (15 min) +
+  refresh (7 day) tokens via PyJWT, each carrying a `type` claim so an access
+  token can't be replayed as a refresh token or vice versa.
+- `app/core/deps.py`: `get_db` (async sessionmaker over an engine bound to
+  `settings.DATABASE_URL`), `get_current_user` (reads the `access_token`
+  cookie), and two dependency-factory pairs for authorization —
+  `require_workspace_role(*roles)` / `require_project_role(*roles)` — called
+  with no roles for "any member" (read access) or specific roles (e.g.
+  `ADMIN, EDITOR`) for writes. `require_project_role` resolves the project's
+  `workspace_id` internally so file routes don't need a workspace_id in the URL.
+- `app/services/auth_service.py` + `app/api/auth.py`: signup/login set both
+  cookies (`HttpOnly`, `SameSite=lax`, `secure` gated on
+  `settings.ENVIRONMENT == "production"`); refresh rotates both; logout clears
+  both; `/me` returns the current user. Generated a fresh random `JWT_SECRET`
+  into the local `.env` (was still the repo's placeholder string) — `.env` is
+  git-ignored, confirmed with `git check-ignore`.
+- Manually smoke-tested end-to-end against the live backend + Postgres:
+  signup → cookies set → `/me` → logout → `/me` now 401. Cleaned up the
+  smoke-test user row afterward. Formal `tests/test_auth.py` comes in the same
+  pass as `conftest.py` (next), since the test-database bootstrap is shared
+  infrastructure for every Phase 1 test file.
+- `ruff format` + `ruff check` clean on everything touched so far.
+
+**Next in this session:** workspace/project/file services + routers, template
+skeletons, `conftest.py` (live Postgres test DB via Alembic, transactional
+per-test sessions, isolated `PROJECTS_ROOT`), and the full Phase 1 test suite.
+Final checkpoint once everything is green.
 
 ### Session 1 — 2026-07-15 — Foundation (pre-Phase 1)
 
