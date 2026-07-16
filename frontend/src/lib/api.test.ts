@@ -15,17 +15,15 @@ describe("api client", () => {
   });
 
   it("returns parsed JSON on success", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        jsonResponse(200, {
-          id: "1",
-          email: "a@b.com",
-          name: "A",
-          avatar_url: null,
-          plan: "free",
-        }),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        id: "1",
+        email: "a@b.com",
+        name: "A",
+        avatar_url: null,
+        plan: "free",
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const user = await api.auth.me();

@@ -148,7 +148,7 @@ left, and anything the next session needs to know that isn't obvious from the
 code itself.
 -->
 
-### Session 3 — 2026-07-16 — Phase 2: Frontend IDE shell (Milestone 1: Foundation + Auth, IN PROGRESS)
+### Session 3 — 2026-07-16 — Phase 2: Frontend IDE shell (Milestone 2: Dashboard, IN PROGRESS)
 
 **New permanent workflow rules as of this session** (apply to every future phase
 until explicitly changed): the assistant no longer runs any git commands
@@ -234,18 +234,86 @@ gets placeholders only.
   this reformatted every file touched this milestone; re-ran the full
   typecheck/lint/test/build pass afterward to confirm nothing broke).
 
-**Not done yet (deliberately out of scope for this milestone):** dashboard
-page is still `return null` (Milestone 2); the entire IDE shell — FileTree,
-Monaco, EditorTabs, resizable-panel layout, StatusBar, theme toggle, keyboard
-shortcuts — is untouched (Milestones 3+); no Playwright yet (needs a working
-dashboard + IDE to have anything to click through). `useWorkspaceStore.ts`,
-`useEditorStore.ts` are still stubs.
+**Milestone 2 — Dashboard (done):**
+- Added `@radix-ui/react-dialog`, `@radix-ui/react-select` and hand-wrote the
+  matching shadcn primitives (`dialog.tsx`, `select.tsx`, plus `badge.tsx` for
+  role/owner tags) — same "copy the standard output into the repo" approach as
+  Milestone 1's Button/Input/Label/Card.
+- `src/stores/useWorkspaceStore.ts`: `workspaces` + `projectsByWorkspace` +
+  `membersByWorkspace` (all keyed/scoped so multiple workspaces' data can be
+  loaded concurrently without clobbering each other), each with its own
+  `FetchStatus` (`idle`/`loading`/`loaded`/`error`) so the UI can show
+  per-section loading/error states independently. `inviteMember` /
+  `updateMemberRole` / `removeMember` all call their endpoint then refetch that
+  workspace's member list rather than hand-patching the array — simpler and
+  guaranteed consistent with the server. `currentProjectId`/`fileTree` fields
+  the Milestone 1 note mentioned are still deferred to Milestone 3, since
+  nothing here needs them yet.
+- `src/components/dashboard/`: `CreateWorkspaceDialog.tsx`,
+  `CreateProjectDialog.tsx` (template picker over all 5 backend templates —
+  blank/node/next/python/fastapi — with a one-line description each),
+  `MembersDialog.tsx` (invite-by-email + role `Select`, per-row role change +
+  remove, owner row shown as a static "owner" badge instead of controls since
+  the backend rejects demoting/removing the owner), `WorkspaceSection.tsx`
+  (fetches+renders one workspace's projects as cards linking to
+  `/workspace/[id]`). `src/app/dashboard/page.tsx` assembles all of it plus a
+  header with the logged-in user's email and a logout button.
+- **Known limitation, not fixed this milestone (explicitly not a backend
+  change — Phase 2 is scoped to `frontend/`):** `WorkspaceMemberRead` only
+  returns `{workspace_id, user_id, role}` — no email or name. The members list
+  can only show a friendly identity for the current user (via `useAuth()`);
+  every other member renders as a truncated UUID. Flagging this for the user
+  to decide: a small additive (non-breaking) backend change — adding
+  `email`/`name` to `WorkspaceMemberRead` via the existing `user` relationship
+  — would fix this, but wasn't done since it's outside this phase's stated
+  scope.
+- **Routing decision worth recording:** `/workspace/[id]` uses the **project**
+  id, not the Workspace resource's id — "workspace" here means "the IDE
+  workspace for one project," distinct from the backend's `Workspace` (a
+  team/org container for many projects). `WorkspaceSection` links each project
+  card to `/workspace/{project.id}`. Keeping this consistent matters for
+  Milestone 3, which will read `params.id` as a project id and call
+  `GET /projects/{id}` + `GET /projects/{id}/files`.
+- `src/stores/useWorkspaceStore.test.ts`: 9 tests (`vi.spyOn` on the real
+  `api.workspaces.*`/`api.projects.*` methods, same pattern as the auth store
+  tests) covering every action including that invite/role-update/remove all
+  trigger the expected refetch. **20/20 total tests passing** (11 from
+  Milestone 1 + 9 new).
+- `npx tsc --noEmit` clean, `next lint` clean, `next build` succeeds (same 7
+  routes, `/dashboard` now 34.6 kB instead of 146 B), `npm test` 20/20. Ran
+  `npx prettier --write` again; re-verified the full pipeline afterward.
+- **Verified against the live stack, not mocked:** drove the exact HTTP calls
+  `lib/api.ts` makes — signup → list workspaces (empty) → create workspace →
+  list projects (empty) → create project from the `fastapi` template → list
+  members (owner, role `admin`) → signup a second user → invite them as
+  `viewer` → promote to `editor` → remove them (204) — every response body
+  matched the frontend's TS types exactly, field-for-field. Cleaned up the
+  smoke-test users/workspace/project afterward, including the orphaned
+  on-disk project directory (raw `DELETE FROM users` cascades through the DB
+  but bypasses `project_service.delete_project`'s disk cleanup, so a
+  smoke-test project directory was left under `projects_root/` until removed
+  by hand — a real app flow going through `DELETE /projects/{id}` wouldn't
+  have this gap).
+  **Not verified this milestone:** actual interactive browser use (clicking
+  dialogs, typing into forms, watching React state update) — no browser
+  automation tool is available in this environment. The data-layer
+  verification above exercises the same HTTP calls the UI makes and confirms
+  every shape lines up with what the components expect, but it does not
+  prove the dialogs render/open/submit correctly in an actual browser.
+  Worth keeping in mind if something looks visually off later.
 
-**Next milestone (2 — Dashboard):** workspace list/create dialog, project
-list/create dialog with the template picker, member management UI (invite by
-email, role dropdown) — all consuming `lib/api.ts` methods that already exist.
-Stop for approval after that, per the new workflow rule, before starting the
-IDE shell itself.
+**Not done yet (deliberately out of scope for this milestone):** the entire
+IDE shell — FileTree, Monaco, EditorTabs, resizable-panel layout, StatusBar,
+theme toggle, keyboard shortcuts — is untouched (Milestone 3+); no Playwright
+yet (needs a working IDE to have anything to click through). `useEditorStore.ts`
+is still a stub.
+
+**Next milestone (3 — IDE shell layout):** `react-resizable-panels` +
+`WorkspaceShell` composing `Sidebar`/`FileTree` (left), `EditorTabs` +
+`MonacoWrapper` (center), collapsible bottom (Terminal/Problems placeholders)
+and right (AI Chat placeholder) panels, `StatusBar`. Stop for approval after
+that, per the workflow rule, before wiring up the actual file tree/editor
+data (planned as its own follow-up milestone given its size).
 
 ### Session 2 — 2026-07-15 — Phase 1: Backend core (COMPLETE)
 
