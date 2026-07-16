@@ -53,7 +53,10 @@ export default function WorkspacePage({ params }: { params: { id: string } }) {
         <span className="font-medium">{currentProject.name}</span>
       </div>
       <div className="flex-1 overflow-hidden">
-        <WorkspaceShell containerStatus={currentProject.container_status} />
+        <WorkspaceShell
+          projectId={currentProject.id}
+          containerStatus={currentProject.container_status}
+        />
       </div>
     </div>
   );

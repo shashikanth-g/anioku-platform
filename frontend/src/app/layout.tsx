@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { HydrationMarker } from "@/components/HydrationMarker";
 
 export const metadata: Metadata = {
   title: "ANKU",
@@ -20,6 +21,7 @@ export default function RootLayout({
           defaultTheme="dark"
           enableSystem={false}
         >
+          <HydrationMarker />
           {children}
         </ThemeProvider>
       </body>

@@ -5,6 +5,10 @@ frontend/out/
 frontend/coverage/
 frontend/.env.local
 frontend/*.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
+frontend/playwright/.cache/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

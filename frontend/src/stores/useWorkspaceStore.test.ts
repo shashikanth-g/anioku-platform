@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
 import { useWorkspaceStore } from "@/stores/useWorkspaceStore";
-import type { Project, Workspace, WorkspaceMember } from "@/types";
+import type { FileNode, Project, Workspace, WorkspaceMember } from "@/types";
 
 const workspace: Workspace = {
   id: "ws-1",
@@ -47,6 +47,8 @@ describe("useWorkspaceStore", () => {
       currentWorkspaceId: null,
       currentProject: null,
       currentProjectStatus: "idle",
+      fileTree: [],
+      fileTreeStatus: "idle",
     });
   });
 
@@ -199,5 +201,92 @@ describe("useWorkspaceStore", () => {
 
     expect(useWorkspaceStore.getState().currentProject).toBeNull();
     expect(useWorkspaceStore.getState().currentProjectStatus).toBe("error");
+  });
+
+  it("fetchFileTree() loads the flat file list", async () => {
+    const tree: FileNode[] = [
+      {
+        path: "a.txt",
+        is_dir: false,
+        size: 5,
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    vi.spyOn(api.files, "tree").mockResolvedValue(tree);
+
+    await useWorkspaceStore.getState().fetchFileTree("proj-1");
+
+    expect(useWorkspaceStore.getState().fileTree).toEqual(tree);
+    expect(useWorkspaceStore.getState().fileTreeStatus).toBe("loaded");
+  });
+
+  it("createFileEntry() creates then refetches the tree", async () => {
+    const newNode: FileNode = {
+      path: "b.txt",
+      is_dir: false,
+      size: 0,
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    const createSpy = vi.spyOn(api.files, "create").mockResolvedValue(newNode);
+    const treeSpy = vi.spyOn(api.files, "tree").mockResolvedValue([newNode]);
+
+    const result = await useWorkspaceStore
+      .getState()
+      .createFileEntry("proj-1", "b.txt", false);
+
+    expect(createSpy).toHaveBeenCalledWith("proj-1", "b.txt", false);
+    expect(treeSpy).toHaveBeenCalledWith("proj-1");
+    expect(result).toEqual(newNode);
+    expect(useWorkspaceStore.getState().fileTree).toEqual([newNode]);
+  });
+
+  it("deleteFileEntry() removes then refetches the tree", async () => {
+    const removeSpy = vi
+      .spyOn(api.files, "remove")
+      .mockResolvedValue(undefined);
+    vi.spyOn(api.files, "tree").mockResolvedValue([]);
+
+    await useWorkspaceStore.getState().deleteFileEntry("proj-1", "b.txt");
+
+    expect(removeSpy).toHaveBeenCalledWith("proj-1", "b.txt");
+    expect(useWorkspaceStore.getState().fileTree).toEqual([]);
+  });
+
+  it("renameFileEntry() renames then refetches the tree", async () => {
+    const renamed: FileNode = {
+      path: "c.txt",
+      is_dir: false,
+      size: 5,
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    const renameSpy = vi.spyOn(api.files, "rename").mockResolvedValue(renamed);
+    vi.spyOn(api.files, "tree").mockResolvedValue([renamed]);
+
+    const result = await useWorkspaceStore
+      .getState()
+      .renameFileEntry("proj-1", "b.txt", "c.txt");
+
+    expect(renameSpy).toHaveBeenCalledWith("proj-1", "b.txt", "c.txt");
+    expect(result).toEqual(renamed);
+    expect(useWorkspaceStore.getState().fileTree).toEqual([renamed]);
+  });
+
+  it("patchFileNode() upserts a single node without refetching", () => {
+    const original: FileNode = {
+      path: "a.txt",
+      is_dir: false,
+      size: 5,
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    useWorkspaceStore.setState({ fileTree: [original] });
+
+    const updated: FileNode = {
+      ...original,
+      size: 99,
+      updated_at: "2026-02-01T00:00:00Z",
+    };
+    useWorkspaceStore.getState().patchFileNode(updated);
+
+    expect(useWorkspaceStore.getState().fileTree).toEqual([updated]);
   });
 });

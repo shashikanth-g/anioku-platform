@@ -1,10 +1,10 @@
 // Zustand store for the dashboard's workspace/project/member data, plus the
-// current project the IDE shell (Milestone 3+) is open on. The file-tree
-// cache still lands in the follow-up milestone that wires up FileTree/Monaco.
+// current project and its file tree the IDE shell is open on.
 import { create } from "zustand";
 
 import { api } from "@/lib/api";
 import type {
+  FileNode,
   Project,
   ProjectCreate,
   Workspace,
@@ -30,6 +30,22 @@ interface WorkspaceState {
   currentProject: Project | null;
   currentProjectStatus: FetchStatus;
   fetchProject: (projectId: string) => Promise<void>;
+
+  fileTree: FileNode[];
+  fileTreeStatus: FetchStatus;
+  fetchFileTree: (projectId: string) => Promise<void>;
+  createFileEntry: (
+    projectId: string,
+    path: string,
+    isDir: boolean,
+  ) => Promise<FileNode>;
+  deleteFileEntry: (projectId: string, path: string) => Promise<void>;
+  renameFileEntry: (
+    projectId: string,
+    oldPath: string,
+    newPath: string,
+  ) => Promise<FileNode>;
+  patchFileNode: (node: FileNode) => void;
 
   fetchWorkspaces: () => Promise<void>;
   createWorkspace: (name: string) => Promise<Workspace>;
@@ -78,6 +94,42 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ currentProject: null, currentProjectStatus: "error" });
       throw err;
     }
+  },
+
+  fileTree: [],
+  fileTreeStatus: "idle",
+  fetchFileTree: async (projectId) => {
+    set({ fileTreeStatus: "loading" });
+    try {
+      const tree = await api.files.tree(projectId);
+      set({ fileTree: tree, fileTreeStatus: "loaded" });
+    } catch (err) {
+      set({ fileTreeStatus: "error" });
+      throw err;
+    }
+  },
+  createFileEntry: async (projectId, path, isDir) => {
+    const node = await api.files.create(projectId, path, isDir);
+    await get().fetchFileTree(projectId);
+    return node;
+  },
+  deleteFileEntry: async (projectId, path) => {
+    await api.files.remove(projectId, path);
+    await get().fetchFileTree(projectId);
+  },
+  renameFileEntry: async (projectId, oldPath, newPath) => {
+    const node = await api.files.rename(projectId, oldPath, newPath);
+    await get().fetchFileTree(projectId);
+    return node;
+  },
+  patchFileNode: (node) => {
+    set((state) => {
+      const idx = state.fileTree.findIndex((n) => n.path === node.path);
+      if (idx === -1) return { fileTree: [...state.fileTree, node] };
+      const next = [...state.fileTree];
+      next[idx] = node;
+      return { fileTree: next };
+    });
   },
 
   fetchWorkspaces: async () => {
