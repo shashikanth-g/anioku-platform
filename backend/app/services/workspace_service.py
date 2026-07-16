@@ -4,6 +4,7 @@ import uuid
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.enums import WorkspaceRole
 from app.models.user import User
@@ -73,9 +74,24 @@ async def get_membership(
     return await db.get(WorkspaceMember, (workspace_id, user_id))
 
 
+async def get_membership_with_user(
+    db: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID
+) -> WorkspaceMember | None:
+    """Like get_membership, but with `.user` eager-loaded — needed anywhere
+    the response includes the member's email/name (WorkspaceMemberRead)."""
+    result = await db.execute(
+        select(WorkspaceMember)
+        .where(WorkspaceMember.workspace_id == workspace_id, WorkspaceMember.user_id == user_id)
+        .options(selectinload(WorkspaceMember.user))
+    )
+    return result.scalar_one_or_none()
+
+
 async def list_members(db: AsyncSession, workspace_id: uuid.UUID) -> list[WorkspaceMember]:
     result = await db.execute(
-        select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id)
+        select(WorkspaceMember)
+        .where(WorkspaceMember.workspace_id == workspace_id)
+        .options(selectinload(WorkspaceMember.user))
     )
     return list(result.scalars().all())
 
@@ -91,13 +107,13 @@ async def invite_member(
     if existing is not None:
         existing.role = role
         await db.commit()
-        await db.refresh(existing)
-        return existing
-    membership = WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=role)
-    db.add(membership)
-    await db.commit()
-    await db.refresh(membership)
-    return membership
+    else:
+        membership = WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=role)
+        db.add(membership)
+        await db.commit()
+    loaded = await get_membership_with_user(db, workspace.id, user.id)
+    assert loaded is not None
+    return loaded
 
 
 async def update_member_role(
@@ -110,8 +126,9 @@ async def update_member_role(
         raise UserNotFoundError(str(user_id))
     membership.role = role
     await db.commit()
-    await db.refresh(membership)
-    return membership
+    loaded = await get_membership_with_user(db, workspace.id, user_id)
+    assert loaded is not None
+    return loaded
 
 
 async def remove_member(db: AsyncSession, workspace: Workspace, *, user_id: uuid.UUID) -> None:

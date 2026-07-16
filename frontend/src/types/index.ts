@@ -58,6 +58,8 @@ export interface WorkspaceMember {
   workspace_id: string;
   user_id: string;
   role: WorkspaceRole;
+  email: string;
+  name: string;
 }
 
 export interface WorkspaceMemberInvite {

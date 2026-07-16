@@ -114,13 +114,19 @@ export function MembersDialog({ workspace }: { workspace: Workspace }) {
                 key={member.user_id}
                 className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm"
               >
-                <span className="truncate" title={member.user_id}>
-                  {isSelf && user
-                    ? user.email
-                    : `${member.user_id.slice(0, 8)}…`}
-                  {isSelf ? (
-                    <span className="text-muted-foreground"> (you)</span>
-                  ) : null}
+                <span
+                  className="flex min-w-0 flex-col truncate"
+                  title={member.email}
+                >
+                  <span className="truncate">
+                    {member.name}
+                    {isSelf ? (
+                      <span className="text-muted-foreground"> (you)</span>
+                    ) : null}
+                  </span>
+                  <span className="truncate text-xs text-muted-foreground">
+                    {member.email}
+                  </span>
                 </span>
                 <div className="flex items-center gap-2">
                   {isOwner ? (

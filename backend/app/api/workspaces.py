@@ -100,7 +100,7 @@ async def list_members(
     db: AsyncSession = Depends(get_db),
 ) -> list[WorkspaceMemberRead]:
     members = await workspace_service.list_members(db, workspace_id)
-    return [WorkspaceMemberRead.model_validate(m) for m in members]
+    return [WorkspaceMemberRead.from_member(m) for m in members]
 
 
 @router.post(
@@ -123,7 +123,7 @@ async def invite_member(
         )
     except workspace_service.UserNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No user found with that email")
-    return WorkspaceMemberRead.model_validate(membership)
+    return WorkspaceMemberRead.from_member(membership)
 
 
 @router.patch("/{workspace_id}/members/{user_id}", response_model=WorkspaceMemberRead)
@@ -145,7 +145,7 @@ async def update_member_role(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Member not found")
     except workspace_service.OwnerRoleChangeError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
-    return WorkspaceMemberRead.model_validate(membership)
+    return WorkspaceMemberRead.from_member(membership)
 
 
 @router.delete("/{workspace_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

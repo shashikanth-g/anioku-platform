@@ -31,6 +31,8 @@ const member: WorkspaceMember = {
   workspace_id: "ws-1",
   user_id: "user-2",
   role: "viewer",
+  email: "member@example.com",
+  name: "Member",
 };
 
 describe("useWorkspaceStore", () => {
@@ -43,6 +45,8 @@ describe("useWorkspaceStore", () => {
       membersByWorkspace: {},
       membersStatus: {},
       currentWorkspaceId: null,
+      currentProject: null,
+      currentProjectStatus: "idle",
     });
   });
 
@@ -175,5 +179,25 @@ describe("useWorkspaceStore", () => {
 
     expect(removeSpy).toHaveBeenCalledWith("ws-1", "user-2");
     expect(useWorkspaceStore.getState().membersByWorkspace["ws-1"]).toEqual([]);
+  });
+
+  it("fetchProject() loads the current project on success", async () => {
+    vi.spyOn(api.projects, "get").mockResolvedValue(project);
+
+    await useWorkspaceStore.getState().fetchProject("proj-1");
+
+    expect(useWorkspaceStore.getState().currentProject).toEqual(project);
+    expect(useWorkspaceStore.getState().currentProjectStatus).toBe("loaded");
+  });
+
+  it("fetchProject() clears the current project and rethrows on failure", async () => {
+    vi.spyOn(api.projects, "get").mockRejectedValue(new Error("not found"));
+
+    await expect(
+      useWorkspaceStore.getState().fetchProject("missing"),
+    ).rejects.toThrow("not found");
+
+    expect(useWorkspaceStore.getState().currentProject).toBeNull();
+    expect(useWorkspaceStore.getState().currentProjectStatus).toBe("error");
   });
 });

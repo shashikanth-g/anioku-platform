@@ -37,6 +37,8 @@ async def test_viewer_cannot_write_editor_can(client):
         json={"email": "viewer@example.com", "role": "viewer"},
     )
     assert invite_resp.status_code == 201
+    assert invite_resp.json()["email"] == "viewer@example.com"
+    assert invite_resp.json()["name"] == "Viewer"
     await client.post("/api/v1/auth/logout")
 
     # As the viewer: reads succeed, writes are forbidden.
@@ -60,11 +62,15 @@ async def test_viewer_cannot_write_editor_can(client):
     )
     members_resp = await client.get(f"/api/v1/workspaces/{workspace_id}/members")
     assert members_resp.status_code == 200
-    viewer_user_id = next(m["user_id"] for m in members_resp.json() if m["role"] == "viewer")
+    viewer_entry = next(m for m in members_resp.json() if m["role"] == "viewer")
+    assert viewer_entry["email"] == "viewer@example.com"
+    assert viewer_entry["name"] == "Viewer"
+    viewer_user_id = viewer_entry["user_id"]
     promote_resp = await client.patch(
         f"/api/v1/workspaces/{workspace_id}/members/{viewer_user_id}", json={"role": "editor"}
     )
     assert promote_resp.status_code == 200
+    assert promote_resp.json()["email"] == "viewer@example.com"
     await client.post("/api/v1/auth/logout")
 
     # Now an editor, the same user can write.

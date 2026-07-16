@@ -100,6 +100,17 @@ deploys, long agent runs) is offloaded to Celery workers backed by Redis.
   (`app/models/` = ORM, `app/schemas/` = Pydantic).
 - **API routes**: every HTTP endpoint is versioned under `/api/v1/...`. Routers
   live in `app/api/`, one file per resource, included from `app/main.py`.
+- **"Workspace" is overloaded — know which one is meant:** the backend's
+  `Workspace` model/table (`app/models/workspace.py`, `/api/v1/workspaces/...`)
+  is a team/org container that holds many `Project`s and has its own members +
+  roles. The frontend route **`/workspace/[id]`** (singular, no relation to
+  that resource's collection route) is the IDE screen for one **project** —
+  `[id]` is a **project id**, not a `Workspace` id. This route reads
+  `GET /api/v1/projects/{id}` and `GET /api/v1/projects/{id}/files`, never
+  `/api/v1/workspaces/{id}`. Keep this distinction in mind in both codebases:
+  a backend `Workspace` is "the team's account"; the frontend "workspace" page
+  is "the editor you're working in for one project." `WorkspaceSection.tsx`
+  on the dashboard links each project card to `/workspace/{project.id}`.
 - **Socket.io events**: namespaced as `domain:action`, e.g. `file:update`,
   `terminal:output`, `presence:join`, `chat:stream`. Server-side handlers live in
   `app/realtime/`, one concern per module (`presence.py`, `sync.py`, `rooms.py`).
@@ -148,7 +159,7 @@ left, and anything the next session needs to know that isn't obvious from the
 code itself.
 -->
 
-### Session 3 — 2026-07-16 — Phase 2: Frontend IDE shell (Milestone 2: Dashboard, IN PROGRESS)
+### Session 3 — 2026-07-16 — Phase 2: Frontend IDE shell (Milestone 3: IDE shell layout, COMPLETE)
 
 **New permanent workflow rules as of this session** (apply to every future phase
 until explicitly changed): the assistant no longer runs any git commands
@@ -308,12 +319,138 @@ theme toggle, keyboard shortcuts — is untouched (Milestone 3+); no Playwright
 yet (needs a working IDE to have anything to click through). `useEditorStore.ts`
 is still a stub.
 
-**Next milestone (3 — IDE shell layout):** `react-resizable-panels` +
-`WorkspaceShell` composing `Sidebar`/`FileTree` (left), `EditorTabs` +
-`MonacoWrapper` (center), collapsible bottom (Terminal/Problems placeholders)
-and right (AI Chat placeholder) panels, `StatusBar`. Stop for approval after
-that, per the workflow rule, before wiring up the actual file tree/editor
-data (planned as its own follow-up milestone given its size).
+**Approved follow-up — real member identities (done, backend + frontend):**
+The Milestone 2 note above flagged `WorkspaceMemberRead` returning only
+`{workspace_id, user_id, role}`; this was approved as a small additive backend
+change rather than left as a frontend workaround.
+- `app/schemas/workspace.py`: `WorkspaceMemberRead` gained `email: str` and
+  `name: str`, populated via a new `WorkspaceMemberRead.from_member(member)`
+  classmethod that reads `member.user.email`/`.user.name` — plain
+  `model_validate()`/`from_attributes` can't reach into a relationship for a
+  flat field, so the three call sites in `app/api/workspaces.py`
+  (`list_members`, `invite_member`, `update_member_role`) now call
+  `.from_member(...)` instead.
+- `app/services/workspace_service.py`: added `get_membership_with_user()`
+  (eager-loads `.user` via `selectinload`) and eager-loads it in
+  `list_members` too. `invite_member`/`update_member_role` now re-fetch through
+  this helper after their commit rather than returning the bare `db.refresh()`
+  result, since refresh reloads columns but not relationships.
+- `tests/test_workspace_permissions.py`: extended the existing invite/promote
+  assertions to check `email`/`name` are present and correct — no new test
+  file needed since this rides on the same flow already being exercised.
+  **10/10 backend tests still passing.**
+- Frontend: `WorkspaceMember` in `src/types/index.ts` gained `email`/`name`;
+  `MembersDialog.tsx` now renders the real name (+ email as a subtitle) for
+  every member instead of special-casing only the current user via
+  `useAuth()` and truncating everyone else's UUID. Updated the `member` test
+  fixture in `useWorkspaceStore.test.ts` to match the wider type.
+  **20/20 frontend tests still passing**, `tsc`/lint/build clean.
+- Verified live against the real stack (not mocked): fresh signup → create
+  workspace → `GET .../members` and `POST .../members` (invite) both now
+  return `email`/`name` for the owner and the invited user respectively,
+  exactly matching the updated frontend type. Cleaned up the smoke-test users
+  afterward.
+- Also documented the `/workspace/[id]` (project id) vs. backend `Workspace`
+  (team/org container) distinction directly in this file's **Coding
+  conventions** section, per the same approval, so it's not just buried in a
+  progress-log entry from one session.
+
+**Milestone 3 — IDE shell layout (done):**
+- Added `react-resizable-panels`, `next-themes`, `@radix-ui/react-tabs`; wrote
+  the matching shadcn `tabs.tsx` primitive.
+- `src/components/theme/ThemeProvider.tsx` (wraps `next-themes`) +
+  `ThemeToggle.tsx` (Sun/Moon button, guards against a hydration mismatch by
+  rendering a stable icon until mounted). Root layout (`src/app/layout.tsx`)
+  wraps `{children}` in it with `defaultTheme="dark"`, `enableSystem={false}`
+  — dark by default, no OS-preference override, per the task. `<html>` needs
+  `suppressHydrationWarning` since `next-themes` mutates its class after
+  hydration; this is documented, expected behavior, not a bug being papered
+  over.
+- `src/stores/useWorkspaceStore.ts` gained the `currentProject`/
+  `currentProjectStatus`/`fetchProject()` fields the Milestone 1 and 2 notes
+  both said were coming "once the IDE shell consumes them" — now it does.
+- `src/components/layout/WorkspaceShell.tsx`: the actual resizable layout —
+  `PanelGroup`/`Panel`/`PanelResizeHandle` nested horizontal (sidebar / main /
+  right) then vertical inside "main" (editor / bottom). Sidebar, bottom, and
+  right panels are all `collapsible` with `collapsedSize={0}`. Ctrl/Cmd+B is
+  wired for real: a `window` keydown listener calls the sidebar panel's
+  imperative `.collapse()`/`.expand()` via a ref
+  (`ImperativePanelHandle`) — this is a genuine, working shortcut, not a
+  placeholder.
+- `src/components/layout/{Sidebar,BottomPanel,RightPanel}.tsx` (`BottomPanel`/
+  `RightPanel` are new files, not in the original scaffold list): `Sidebar`
+  wraps `FileTree` with an "Explorer" header; `BottomPanel` is a real `Tabs`
+  (Terminal/Problems) but each tab's content is a "coming in Phase 3/4" note;
+  `RightPanel` is the "AI Chat" placeholder. Deliberately did **not** touch
+  `components/terminal/TerminalPanel.tsx` or `components/chat/AIChatPanel.tsx`
+  for these placeholders — those files are reserved for their real Phase 3/4
+  implementations, and wiring fake content into them now would create
+  confusion later about what's real.
+- `src/components/layout/StatusBar.tsx` is **genuinely functional, not a
+  placeholder**, for the one piece of data already available this phase: it
+  takes a `containerStatus` prop (from the real `Project.container_status`
+  the backend already returns) and renders it with a status-colored dot.
+  Branch ("main"), language ("Plain Text"), and cursor position ("Ln 1, Col
+  1") stay static placeholders since there's no git/file/editor data to back
+  them yet — faking those would violate "no placeholder implementations
+  unless the roadmap explicitly allows them," but `container_status` isn't
+  fake, it's real data simply not wired anywhere else yet.
+- `src/components/editor/{FileTree,EditorTabs,MonacoWrapper}.tsx` upgraded
+  from bare `return null` to real empty-state placeholder UI ("File tree will
+  appear here...", "No files open", "Select a file to start editing.") — this
+  is what Milestone 3 owns (the shell's visual chrome); the TODO comments now
+  point at "follow-up milestone" instead of "Phase 2" so it's unambiguous
+  that wiring real data is the very next piece of work, not a future phase.
+  `Breadcrumbs.tsx` was left as `return null` — with no active file there is
+  legitimately nothing to show, so that's correct behavior, not a gap.
+- `src/app/workspace/[id]/page.tsx`: now a real page — calls
+  `fetchProject(params.id)` on mount, shows a loading state, an error state
+  with a link back to `/dashboard` if the project can't be found, and
+  otherwise a slim title bar (back arrow + project name) above
+  `<WorkspaceShell containerStatus={currentProject.container_status} />`.
+  Fixed a height-nesting bug caught before it shipped: `WorkspaceShell`
+  originally set `h-screen` on its own root div, which double-counted height
+  once the page wrapped it in its own `h-screen` column with a title bar
+  above — changed `WorkspaceShell` to `h-full` so it fills whatever the page
+  gives it.
+- `src/stores/useWorkspaceStore.test.ts`: 2 new tests for `fetchProject()`
+  (success and failure paths), same `vi.spyOn(api.projects, "get")` pattern
+  as everything else. **22/22 frontend tests passing.**
+- `npx tsc --noEmit` clean, `next lint` clean, `next build` succeeds
+  (`/workspace/[id]` is now 16.7 kB instead of 142 B — confirms real content
+  is bundled, not still a stub), `npm test` 22/22. Ran `npx prettier --write`
+  again; re-verified the full pipeline afterward.
+- **Verified against the live stack:** created a real workspace + project via
+  the API, then `curl`'d `/workspace/{project_id}` through the Next.js dev
+  server with valid auth cookies → 200 OK, server-rendered HTML shows the
+  expected "Loading project..." state (client-side fetch takes over from
+  there) and the injected theme script correctly defaults to `dark`. Cleaned
+  up the smoke-test user, workspace/project, and its on-disk project
+  directory afterward.
+  **Not verified this milestone (same limitation as Milestones 1-2):** actual
+  panel dragging/collapsing, the Ctrl+B shortcut firing, and the theme toggle
+  visually switching — no browser automation tool is available in this
+  environment, so none of react-resizable-panels' or next-themes' runtime
+  behavior has been exercised by anything other than reading the library docs
+  correctly. Worth a manual click-through pass once a real browser is
+  available.
+
+**Not done yet (deliberately out of scope, follow-up milestone):** FileTree
+isn't wired to `GET /projects/{id}/files` (no lazy-loading, context-menu
+create/rename/delete, drag-and-drop move, or `.gitignore`-aware dimming yet);
+Monaco isn't actually mounted (no syntax highlighting, IntelliSense,
+find/replace, minimap, split view); `EditorTabs` doesn't track real open
+files/dirty state; Cmd/Ctrl+S (save) and Cmd/Ctrl+P (fuzzy quick-open) aren't
+wired since both need that real file/editor data to act on; no localStorage
+tab-layout persistence yet; no Playwright yet (the login → create project →
+open file → edit → save → reload smoke test needs a working editor to exist
+first). `useEditorStore.ts` is still a stub.
+
+This closes out Milestone 3 and, with it, the layout/scaffolding half of
+Phase 2. The next piece of work (not started, no milestone number assigned
+yet) is wiring the FileTree and Monaco editor to real project data — that's
+substantial enough it should be its own milestone rather than folded into
+whatever comes next.
 
 ### Session 2 — 2026-07-15 — Phase 1: Backend core (COMPLETE)
 

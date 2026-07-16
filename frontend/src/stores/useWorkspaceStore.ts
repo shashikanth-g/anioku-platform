@@ -1,6 +1,6 @@
-// Zustand store for the dashboard's workspace/project/member data. The
-// current-project + file-tree cache fields the original TODO mentions land
-// in Milestone 3 once the IDE shell actually consumes them.
+// Zustand store for the dashboard's workspace/project/member data, plus the
+// current project the IDE shell (Milestone 3+) is open on. The file-tree
+// cache still lands in the follow-up milestone that wires up FileTree/Monaco.
 import { create } from "zustand";
 
 import { api } from "@/lib/api";
@@ -26,6 +26,10 @@ interface WorkspaceState {
 
   currentWorkspaceId: string | null;
   setCurrentWorkspace: (id: string | null) => void;
+
+  currentProject: Project | null;
+  currentProjectStatus: FetchStatus;
+  fetchProject: (projectId: string) => Promise<void>;
 
   fetchWorkspaces: () => Promise<void>;
   createWorkspace: (name: string) => Promise<Workspace>;
@@ -62,6 +66,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   currentWorkspaceId: null,
   setCurrentWorkspace: (id) => set({ currentWorkspaceId: id }),
+
+  currentProject: null,
+  currentProjectStatus: "idle",
+  fetchProject: async (projectId) => {
+    set({ currentProjectStatus: "loading" });
+    try {
+      const project = await api.projects.get(projectId);
+      set({ currentProject: project, currentProjectStatus: "loaded" });
+    } catch (err) {
+      set({ currentProject: null, currentProjectStatus: "error" });
+      throw err;
+    }
+  },
 
   fetchWorkspaces: async () => {
     set({ workspacesStatus: "loading" });
