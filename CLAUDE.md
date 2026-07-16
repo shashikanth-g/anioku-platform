@@ -148,6 +148,105 @@ left, and anything the next session needs to know that isn't obvious from the
 code itself.
 -->
 
+### Session 3 — 2026-07-16 — Phase 2: Frontend IDE shell (Milestone 1: Foundation + Auth, IN PROGRESS)
+
+**New permanent workflow rules as of this session** (apply to every future phase
+until explicitly changed): the assistant no longer runs any git commands
+(commit/push/branch/history) — the user handles all Git operations manually.
+This log is strictly append-only (new entries go on top; existing entries are
+never edited or removed). Work is broken into milestones; after each one the
+assistant updates this log, runs formatting/lint/tests/build, summarizes, and
+**stops for explicit approval** before starting the next milestone — it does
+not push through an entire phase in one uninterrupted pass the way Phase 1 was
+run. Secrets stay in `.env` only (never committed, never hardcoded); `.env.example`
+gets placeholders only.
+
+**Milestone 1 — Foundation + Auth (done):**
+- shadcn/ui manually initialized (no interactive CLI — hand-wrote the standard
+  output since `npx shadcn init` needs interactive prompts): `components.json`,
+  CSS variable theme (light + `.dark`) in `src/app/globals.css`, extended
+  `tailwind.config.ts` (color tokens, `borderRadius`, `tailwindcss-animate`
+  plugin). Added `tailwindcss-animate`, `@radix-ui/react-label`,
+  `@radix-ui/react-slot` to `package.json`. Hand-wrote `button.tsx`, `input.tsx`,
+  `label.tsx`, `card.tsx` in `src/components/ui/` — these are the standard
+  shadcn primitives (copy-paste-into-your-repo is shadcn's actual distribution
+  model, not a hand-rolled substitute).
+- `src/types/index.ts`: TS interfaces mirroring every backend Pydantic schema
+  from Phase 1 (`User`, `Workspace`, `WorkspaceMember`, `Project`, `FileNode`,
+  `Page<T>`, plus the `*Create`/`*Update`/`*Invite` request shapes and the
+  `Plan`/`WorkspaceRole`/`ContainerStatus`/`TemplateName` string-literal unions)
+  — the single source of truth other Phase 2 work should extend, not duplicate.
+- `src/lib/api.ts`: typed fetch client, `credentials: "include"` on every call
+  (HttpOnly cookies), `ApiError` (status + message + raw body). On a 401 it
+  makes exactly one `POST /auth/refresh` attempt and retries the original
+  request once; concurrent 401s share a single in-flight refresh promise
+  instead of each firing their own refresh call (a real race avoided, not
+  just theoretical — multiple components can call the API in the same tick
+  right after an access token expires). `/auth/login`, `/auth/signup`, and
+  `/auth/refresh` itself are excluded from the retry path to avoid loops.
+  Covers every Phase 1 endpoint (auth, workspaces + members, projects, files)
+  even though only auth is wired into UI this milestone — building the full
+  typed surface once now means Milestones 2+ (dashboard, IDE) consume it
+  without touching this file again.
+- `src/stores/useAuthStore.ts` (zustand) + `src/hooks/useAuth.ts`: the hook
+  triggers exactly one `GET /auth/me` the first time any component mounts it
+  (guarded by `status === "idle"`, checked synchronously so concurrent mounts
+  in the same render pass don't double-fire), and exposes
+  `{ user, status, isAuthenticated, isLoading, login, signup, logout, error }`
+  from the shared store — no context provider needed.
+- `src/middleware.ts` (Next.js middleware lives under `src/` since the app
+  uses a `src/` layout): redirects to `/login?from=<path>` if **neither**
+  `access_token` nor `refresh_token` cookie is present on `/dashboard/*` or
+  `/workspace/*`; redirects away from `/login`/`/signup` if either cookie is
+  present. Deliberately does **not** verify the JWT's signature/expiry at the
+  edge (that would mean sharing `JWT_SECRET` with the frontend, which
+  shouldn't cross that trust boundary) — this is a coarse, fast gate; the
+  backend is still the actual authority on every real request, and
+  `lib/api.ts`'s auto-refresh handles the "access token expired but refresh
+  token still valid" case entirely client-side.
+- Real `src/app/(auth)/login/page.tsx` and `signup/page.tsx`: shadcn
+  Card/Input/Label/Button, client components, call `useAuth().login()` /
+  `.signup()`, show the `ApiError` message inline, redirect to `/dashboard`
+  (or `?from=` target) on success. **Gotcha hit:** `useSearchParams()` in the
+  login page requires a `<Suspense>` boundary or Next.js can't statically
+  prerender the route — split into a `LoginForm` client component wrapped in
+  `<Suspense>` inside the page; confirmed in the production build output that
+  `/login` still prerenders as static (`○`).
+- `vitest.config.ts` + `src/test/setup.ts` (jsdom, `@testing-library/jest-dom/vitest`,
+  path alias matching `tsconfig.json`'s `@/*`). `src/lib/api.test.ts` (6 tests:
+  success parsing, 204-as-no-content, `ApiError` carries the backend's `detail`
+  message, the 401→refresh→retry path, refresh-also-fails still throws,
+  login/signup/refresh itself never triggers a refresh loop) and
+  `src/stores/useAuthStore.test.ts` (5 tests, `vi.spyOn` on the real `api.auth.*`
+  methods rather than `vi.mock`-ing the whole module — avoids fighting the
+  module's full exported type shape). **11/11 passing.**
+- Verified against the live stack (not mocked): `docker compose exec backend`
+  signup sets cookies with the right CORS headers for `http://localhost:3000`;
+  `curl -b <cookies> http://localhost:3000/dashboard` → 200 (middleware lets it
+  through); no-cookie request to `/dashboard` → 307 to `/login?from=%2Fdashboard`.
+  Cleaned up the smoke-test user row afterward.
+  **Gotcha:** Next dev's hot-reload does not pick up a brand-new `middleware.ts`
+  file without a container/dev-server restart — first curl attempt returned a
+  plain 200 instead of a redirect until `docker compose restart frontend`.
+- `npx tsc --noEmit` clean, `next lint` clean, `next build` succeeds (7 routes,
+  middleware compiles at 26.6 kB), `npm test` 11/11. Ran `npx prettier --write`
+  over `src/**/*.{ts,tsx}` (no `.prettierrc` exists — default Prettier config —
+  this reformatted every file touched this milestone; re-ran the full
+  typecheck/lint/test/build pass afterward to confirm nothing broke).
+
+**Not done yet (deliberately out of scope for this milestone):** dashboard
+page is still `return null` (Milestone 2); the entire IDE shell — FileTree,
+Monaco, EditorTabs, resizable-panel layout, StatusBar, theme toggle, keyboard
+shortcuts — is untouched (Milestones 3+); no Playwright yet (needs a working
+dashboard + IDE to have anything to click through). `useWorkspaceStore.ts`,
+`useEditorStore.ts` are still stubs.
+
+**Next milestone (2 — Dashboard):** workspace list/create dialog, project
+list/create dialog with the template picker, member management UI (invite by
+email, role dropdown) — all consuming `lib/api.ts` methods that already exist.
+Stop for approval after that, per the new workflow rule, before starting the
+IDE shell itself.
+
 ### Session 2 — 2026-07-15 — Phase 1: Backend core (COMPLETE)
 
 **Environment change:** Docker Desktop + WSL2/Ubuntu 24.04 is now set up on the

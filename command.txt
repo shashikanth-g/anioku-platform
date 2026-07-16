@@ -1,0 +1,12 @@
+docker compose up -d
+docker compose ps
+git status
+git add .
+git commit -m "..."
+docker compose logs backend
+
+
+git status
+git add .
+git commit -m "feat: <your message>"
+git push
