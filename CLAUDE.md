@@ -159,6 +159,66 @@ left, and anything the next session needs to know that isn't obvious from the
 code itself.
 -->
 
+### Session 5 — 2026-07-16 — Frontend dev-server corruption: fixed + likely root cause found
+
+The user reported the frontend failing to start with `Cannot find module
+'./448.js'` while requiring `/app/.next/server/app/page.js` — the same family
+of `.next` chunk-resolution error seen a few times in Session 4, there
+attributed to a hydration-race → native-form-GET dev-server bug.
+
+**Immediate fix (done):** `docker compose stop frontend`, deleted
+`frontend/.next` from the host (it's bind-mounted into the container at
+`/app/.next`, so this is a plain host-side `rm -rf`, no container exec
+needed), `docker compose up -d frontend`. Server came back with a clean
+compile (`✓ Ready`, `✓ Compiled / in 12.1s`, `GET / 200`).
+
+**Likely actual root cause, found this session (correcting Session 4's
+diagnosis):** `docker-compose.yml` bind-mounts `./frontend:/app`, so the
+container's `next dev` and any `next build` run **on the host** in the same
+`frontend/` directory share the exact same `.next` output folder. Session 4's
+own verification routine ran `npx next build` directly in `frontend/` on the
+host, repeatedly, while the dockerized `next dev` was live against that same
+directory — `next build` rewrites/replaces `.next`'s manifests and chunks
+out from under the running dev server, which is a much simpler and more
+direct explanation for the `MODULE_NOT_FOUND`/chunk-resolution corruption
+than a hydration-timing race. The hydration-race bug and its
+`HydrationMarker.tsx` fix (Session 4) are very likely still real and correct
+— Playwright did observe an actual `/signup?` native-GET fallback once — but
+this build/dev `.next`-directory collision was probably the dominant cause of
+the *dev-server corruption* specifically, and the two were conflated.
+**Changed working practice going forward: do not run `next build` in
+`frontend/` on the host while the `frontend` container's `next dev` is
+running against the same bind mount.** If a production-build check is needed
+again, stop the frontend container first, or accept that `.next` must be
+cleared and the container restarted immediately afterward before the dev
+server is considered trustworthy again (which is what was done to close out
+this session, below).
+
+**Re-verification after the fix (done, everything green):**
+- `curl` confirmed `/`, `/login`, `/signup` → 200, `/dashboard` and
+  `/workspace/[id]` (no cookie) → 307 redirect to login, on the freshly
+  rebuilt server.
+- Playwright `ide-smoke.spec.ts` (signup → login → create workspace/project →
+  open the IDE → Ctrl+B → open README.md → Monaco loads → edit → Ctrl+S save
+  → reload → content persisted) run **3 times against the rebuilt server**,
+  all passing (44.0s, 24.9s, 41.5s) — this is the real verification that
+  login, dashboard, the IDE shell, and Monaco all actually load and work, not
+  just that routes return 200.
+- `npx vitest run`: 44/44 passing (frontend logic unaffected — this was a dev
+  build-cache issue, not an application-code regression).
+- Backend `ruff format --check` + `ruff check` clean, `pytest` 10/10
+  (unaffected, included anyway since "everything must be green").
+- Ended the session with one more `.next` clear + container restart (no
+  `next build` run afterward) so the server left running is guaranteed to be
+  the same clean state that was just verified, not a state that got
+  overwritten by a subsequent build check.
+- Every Playwright run's smoke-test user/workspace/project and its on-disk
+  project directory were cleaned up by hand afterward, same as every prior
+  session.
+
+No application code changed this session — this was entirely a dev-environment
+incident and process-fix. No git operations were run, as instructed.
+
 ### Session 4 — 2026-07-16 — Phase 2: Frontend IDE shell (Milestone 4: real data wiring + E2E — PHASE 2 COMPLETE)
 
 Per explicit instruction this session, ran through all remaining Phase 2 scope
